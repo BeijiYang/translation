@@ -401,4 +401,213 @@ Now we get a decent area chart!
 
 ![](https://img-blog.csdnimg.cn/20191024233116206.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
 
-More content about resizing / Multi-layer chart / adding legend?
+# Multi-layer Chart 
+
+There is nothing special about the multi-layer chart. All we need to do is to add a `layer` array. It is like a stack, we push the chart items in from the top.
+
+To demonstrate a multi-layer chart, we add the "user_comments" in the previous data.
+
+```
+...
+"data": {
+    "values": [
+    { "user_comments": 0, "active_users": 0, "date": "2019-10-01" },
+    { "user_comments": 3, "active_users": 2, "date": "2019-10-02" },
+    { "user_comments": 1, "active_users": 0, "date": "2019-10-03" },
+    { "user_comments": 1, "active_users": 1, "date": "2019-10-04" },
+    { "user_comments": 2, "active_users": 0, "date": "2019-10-05" },
+    { "user_comments": 1, "active_users": 0, "date": "2019-10-06" },
+    { "user_comments": 2, "active_users": 1, "date": "2019-10-07" }
+    ]
+  },
+ ...
+```
+
+We can create a single layer "User Comments" chart using the same Vega-Lite grammar as the previous one. Just replacing some items in the y-axis object is enough.
+
+```
+{
+      "mark": {"type": "area", "color": "#e0e0e0", "interpolate": "monotone"},
+      "encoding": {
+        "x":{
+           "field": "date",
+           "type": "ordinal",
+           "timeUnit": "yearmonthdate",
+           "axis": {"title": "Date", "labelAngle": -45}
+        },
+         "y": {
+            "field": "user_comments",
+	        "type": "quantitative",
+            "axis": {
+                "title": "User Comments",
+                "format": "d",
+                "values": [1,2,3]
+            }
+        }
+      }
+  }
+```
+
+![user comments](https://img-blog.csdnimg.cn/2019102921460942.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
+
+Then we add a `layer` array. Put the "User Comments" chart object in this array. Nothing changed, it is still a single layer chart.
+
+```
+...
+"layer":[
+    {
+      "mark": {"type": "area", "color": "#e0e0e0", "interpolate": "monotone"},
+      "encoding": {
+        "x":{
+           "field": "date",
+           "type": "ordinal",
+           "timeUnit": "yearmonthdate",
+           "axis": {"title": "Date", "labelAngle": -45}
+        },
+        "y": {
+            "field": "user_comments",
+            "type": "quantitative",
+            "axis": {
+                "title": "User Comments",
+                "format": "d",
+                "values": [1,2,3]
+             }
+          }
+      }
+    }
+  ],
+  ...
+```
+
+What will happen if we put the "Active Users" object in this array?
+
+```
+...
+"layer":[
+    {
+      "mark": {"type": "area", "color": "#e0e0e0", "interpolate": "monotone"},
+      "encoding": {
+        "x":{
+           "field": "date",
+           "type": "ordinal",
+           "timeUnit": "yearmonthdate",
+           "axis": {"title": "Date", "labelAngle": -45}
+        },
+        "y": {
+            "field": "user_comments",
+            "type": "quantitative",
+            "axis": {
+                "title": "User Comments",
+                "format": "d",
+                "values": [1,2,3]
+             }
+          }
+      }
+    },
+    {
+      "mark": {"type": "area", "color": "#0084FF", "interpolate": "monotone"},
+      "encoding": {
+        "x": {
+          "field": "date",
+          "type": "ordinal",
+          "timeUnit": "yearmonthdate",
+          "axis": {"title": "Date", "labelAngle": -45}
+        },
+        "y": {
+          "field": "active_users",
+          "type": "quantitative",
+          "axis": {
+          "title": "Active Users",
+          "format": "d",
+          "values": [1,2]
+          }
+        }
+      }
+    }
+  ],
+  ...
+```
+
+Here it is! A double layer chart.
+
+![double layer chart](https://img-blog.csdnimg.cn/20191029215753251.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
+
+# add legend
+
+Although this chart looks pretty, it has a problem with clarity. Our user can not know which color indicates which data in a glance. This is when we need to add legends in the chart.
+
+There are several approaches to make it happen, here is my solution: I use `stroke`  to create the legend, use `legend` to optimize the style.
+
+add the `stroke` object in any chart object.
+
+```
+...
+{
+      "mark": {"type": "area", "color": "#e0e0e0", "interpolate": "monotone"},
+      "encoding": {
+        "x":{
+           "field": "date",
+           "type": "ordinal",
+           "timeUnit": "yearmonthdate",
+           "axis": {"title": "Date", "labelAngle": -45}
+        },
+        "y": {
+            "field": "user_comments",
+            "type": "quantitative",
+            "axis": {
+                "title": "User Comments",
+                "format": "d",
+                "values": [1,2,3]
+             }
+          },
+        "stroke": {
+          "field": "symbol",
+          "type": "ordinal",
+          "scale": {
+            "domain": ["User Comments", "Active Users"],
+            "range": ["#e0e0e0", "#0084FF"]
+          }
+        }
+      }
+    },
+    ...
+```
+![lame legend](https://img-blog.csdnimg.cn/2019102922121540.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
+
+We get a lame legend in the right-top corner. 
+Let's make it decent! add `legend` object in the top `config` object.
+
+```
+...
+ "legend": {
+        "offset": -106, // 调节图例整体水平移动距离
+        "title": null,
+        "padding": 5,
+        "strokeColor": "#9e9e9e",
+        "strokeWidth": 2,
+        "symbolType": "stroke",
+        "symbolOffset": 0,
+        "symbolStrokeWidth": 10,
+        "labelOffset": 0,
+        "cornerRadius": 10,
+        "symbolSize": 100,
+        "clipHeight": 20
+    }
+   ...
+```
+
+![漂亮图例](https://img-blog.csdnimg.cn/20191029221539677.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
+
+Now it looks so much better.
+
+Since we already have the legend, we can safely get rid of the labels on the y-axis. Just delete the `title` of  `y.axis`  object, or leave it empty. 
+
+When the amount of the layer grows, we can also use both the area chart and the line chart, just like the example down blew. Looks nice, isn't it?
+
+![多层图](https://img-blog.csdnimg.cn/20191029223006212.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
+
+# resize 
+In a real project, we have to make sure that the size of the chart always fit the browser window. Now the chart won't scale, we need to do something in the React component.
+
+... ...
+
