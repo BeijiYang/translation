@@ -450,7 +450,7 @@ We can create a single layer "User Comments" chart using the same Vega-Lite gram
 
 ![user comments](https://img-blog.csdnimg.cn/2019102921460942.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
 
-Then we add a `layer` array. Put the "User Comments" chart object in this array. Nothing changed, it is still a single layer chart.
+Then we add a `layer` array. Push the "User Comments" chart object in this array. Nothing changed, it is still a single layer chart.
 
 ```
 ...
@@ -479,7 +479,7 @@ Then we add a `layer` array. Put the "User Comments" chart object in this array.
   ...
 ```
 
-What will happen if we put the "Active Users" object in this array?
+What will happen if we push the "Active Users" object in this array, too?
 
 ```
 ...
@@ -534,9 +534,9 @@ Here it is! A double layer chart.
 
 # add legend
 
-Although this chart looks pretty, it has a problem with clarity. Our user can not know which color indicates which data in a glance. This is when we need to add legends in the chart.
+Although this chart looks pretty, it has a problem with clarity. Our user can not know which color indicates which data in a glance. Now is when we need to add legends in the chart.
 
-There are several approaches to make it happen, here is my solution: I use `stroke`  to create the legend, use `legend` to optimize the style.
+There are several approaches to make it happen, here is my solution: using `stroke`  to create the legend, using `legend` to optimize the style.
 
 add the `stroke` object in any chart object.
 
@@ -575,12 +575,13 @@ add the `stroke` object in any chart object.
 ![lame legend](https://img-blog.csdnimg.cn/2019102922121540.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
 
 We get a lame legend in the right-top corner. 
+
 Let's make it decent! add `legend` object in the top `config` object.
 
 ```
 ...
  "legend": {
-        "offset": -106, // 调节图例整体水平移动距离
+        "offset": -106, // Adjust the horizontal distance of the legend
         "title": null,
         "padding": 5,
         "strokeColor": "#9e9e9e",
@@ -596,7 +597,7 @@ Let's make it decent! add `legend` object in the top `config` object.
    ...
 ```
 
-![漂亮图例](https://img-blog.csdnimg.cn/20191029221539677.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
+![decent legend](https://img-blog.csdnimg.cn/20191029221539677.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L0JlaWppeWFuZzk5OQ==,size_16,color_FFFFFF,t_70)
 
 Now it looks so much better.
 
