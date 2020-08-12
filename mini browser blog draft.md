@@ -17,6 +17,7 @@
 从 HTTP 请求回来，就产生了流式的数据，后续的 DOM 树构建、CSS 计算、渲染、合成、绘制，都是尽可能地流式处理前一步的产出。
 即不需要等到上一步骤完全结束，就开始处理上一步的输出，这样我们在浏览网页时，才会看到逐步出现的页面。
 
+我们将要实现以下步骤
 [图]
 URL =HTTP=> =parse=> DOM =CSScomputing=> DOM with CSS =layout=> DOM with position =render=> bitmap
 
@@ -218,7 +219,8 @@ Response 是这样一个字符串，请求行，请求头部分之间用 `\r\n` 
 我们可以用状态机来解析，根据该字符串的格式来设计出状态。
 // we can design the states according to the format of the response
 
-什么是状态机（？？补充）
+什么是状态机（？？补充）参考这段改一下
+>根据这样的分析，现在我们讲讲浏览器是如何用代码实现，我们设想，代码开始从 HTTP 协议收到的字符流读取字符。在接受第一个字符之前，我们完全无法判断这是哪一个词（token），不过，随着我们接受的字符越来越多，拼出其他的内容可能性就越来越少。比如，假设我们接受了一个字符“ < ” 我们一下子就知道这不是一个文本节点啦。之后我们再读一个字符，比如就是 x，那么我们一下子就知道这不是注释和 CDATA 了，接下来我们就一直读，直到遇到“>”或者空格，这样就得到了一个完整的词（token）了。实际上，我们每读入一个字符，其实都要做一次决策，而且这些决定是跟“当前状态”有关的。在这样的条件下，浏览器工程师要想实现把字符流解析成词（token），最常见的方案就是使用状态机。 
 
 增加 ResponseParser 类
 
@@ -495,6 +497,335 @@ get response() {
 
 ![](cm01 response body state machine)
 
+
+我们从服务端返回 HTML，保存修改后，node monitor 自动重启了服务端。客户端重新请求，成功获得新的返回值。
+
+./server/server.js
+```
+const http = require("http");
+
+http.createServer((request, response) => {
+  let body = [];
+
+  request.on('error', error => {
+    console.log(error);
+  })
+    .on('data', chunk => {
+      body.push(chunk.toString());
+      console.log(body)
+    })
+    .on('end', () => {
+      body = body.join('');
+      response.writeHead(200, { 'Content-Type': 'text/html' });
+      response.end(
+        `<html maaa=a >
+    <head>
+          <style>
+    body div #myid{
+      width:100px;
+      background-color: #ff5000;
+    }
+    body div img{
+      width:30px;
+      background-color: #ff1111;
+    }
+      </style>
+    </head>
+    <body>
+      <div>
+          <img id="myid"/>
+          <img />
+      </div>
+    </body>
+    </html>`);
+    });
+}).listen(8080);
+
+console.log('The server is running!');
+```
+
+![cm01 html 上+下]()
+
+
+至此，我们已经成功地通过网络请求，获得了 HTML 文件。
+
+下一步，我们解析 HTML ，获得 DOM tree。
+
+## 第二步 HTML 解析
+
+### 词法解析 tokenlization
+
+[步骤总结](https://static001.geekbang.org/resource/image/34/5a/34231687752c11173b7776ba5f4a0e5a.png)
+
+tokenlization 是什么 ？？
+HTML 的结构不算太复杂，我们日常开发需要的 90% 的“词”（指编译原理的术语 token，表示最小的有意义的单元），种类大约只有标签开始、属性、标签结束、注释、CDATA 节点几种。
+
+以 `<p class="a">text</p>` 为例，从最小有意义单元的定义来拆分，可以分为：
+* <p“标签开始”的开始；
+* class=“a” 属性；
+* >  “标签开始”的结束；
+* text 文本；
+* </p> 标签结束。
+
+与前文类似，我们同样采用状态机来进行解析。只不过，HTML 标准已经把状态机设计好了，参考 [标准](https://dev.w3.org/html5/spec-LC/tokenization.html)。
+我们要做的，仅仅是用 JavaScript 翻译出来。
+标准中规定了 80 多个状态，示例代码中仅取一小部分，并做一些简化，足够解析从后端收到的 HTML 即可。
+
+我们把状态设计为函数，这样状态迁移代码就非常的简单：
+
+```
+let state = data; // initial state HTML 标准里把初始状态称为 data
+
+for (const char of html) {
+  state = state(char);
+}
+```
+
+// 标签种类 开始 封闭 自封闭
+
+据此，我们增加新的 parser.js
+
+set up a empty state machine
+
+./client/parser.js
+```
+const EOF = Symbol('EOF'); // end of file token
+
+module.exports.parseHTML = function (html) {
+  let state = data; // initial state             HTML 标准里把初始状态称为 data
+
+  for (const char of html) {
+    console.log(JSON.stringify(char), state.name)
+    state = state(char);
+  }
+  state = state(EOF);
+}
+
+// There three kinds of HTML tags: opening tag <div>, closing tag </div>, self-colsing tag <div/>
+// initial state             HTML 标准里把初始状态称为 data
+function data(char) {
+  if (char === '<') {
+    return tagOpen;
+  } else if (char === EOF) {
+    return;
+  } else {
+    return data;
+  }
+}
+
+// when the state is tagOpen, we don't know what kind of tag it is. 
+// <
+function tagOpen(char) {
+  if (char === '/') {
+    // </    </div>
+    return endTagOpen;
+  } else if (char.match(/^[a-zA-Z]$/)) {
+    // the char is a letter, the tag could be a opening tag or a self-closing tag
+    // <d      <div> or </div>
+    return tagName(char); // reconsume
+  } else {
+    // Parse error
+    return;
+  }
+}
+// /
+function endTagOpen(char) {
+  if (char.match(/^[a-zA-Z]$/)) {
+    return tagName(char);
+  } else if (char === '>') {
+    // error  />  It's html, not JSX
+    // Parse error
+  } else if (char === EOF) {
+    // Parse error
+  } else {
+    // Parse error
+  }
+}
+
+function tagName(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    // tagname start from a '<', end with a ' '
+    // <div prop
+    return beforeAttributeName;
+  } else if (char === '/') {
+    return selfClosingStartTag;
+  } else if (char.match(/^[a-zA-Z]$/)) {
+    return tagName;
+  } else if (char === '>') {
+    // the current tag is over, go back to the initial state to parse the next tag
+    return data;
+  } else {
+    return tagName;
+  }
+}
+
+// 已经 <div/ 了，后面只有跟 > 是有效的，其他的都报错。
+function selfClosingStartTag(char) {
+  if (char === ">") {
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+
+  }
+}
+
+function beforeAttributeName(char) {
+  if (char.match(/^[\t\n\f ]$/)) { // 当标签结束
+    return beforeAttributeName;
+  } else if (char === "/" || char === ">" || char === EOF) {
+    // 属性结束
+    return afterAttributeName(char);
+  } else if (char === "=") {
+    // 属性开始的时候，不会直接就是等号，报错
+    // return
+  } else {
+    return attributeName(char);
+  }
+}
+
+function attributeName(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === EOF) { // 一个完整的属性结束 "<div class='abc' "
+    return afterAttributeName(char);
+  } else if (char === "=") { // class= 可以进入获取value的状态
+    return beforeAttributeValue;
+  } else if (char === "\u0000") { // null
+
+  } else if (char === "\"" || char === "'" || char === "<") { // 双引号 单引号 <
+
+  } else {
+    return attributeName;
+  }
+}
+
+
+function attributeName(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === EOF) { // 一个完整的属性结束 "<div class='abc' "
+    return afterAttributeName(char);
+  } else if (char === "=") { // class= 可以进入获取value的状态
+    return beforeAttributeValue;
+  } else if (char === "\u0000") { // null
+
+  } else if (char === "\"" || char === "'" || char === "<") { // 双引号 单引号 <
+
+  } else {
+    return attributeName;
+  }
+}
+
+function beforeAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === ">" || char === EOF) {
+    return beforeAttributeValue; //?
+  } else if (char === "\"") {
+    return doubleQuotedAttributeValue; // <html attribute="
+  } else if (char === "\'") {
+    return singleQuotedAttributeValue; // <html attribute='
+  } else if (char === ">") {
+    // return data
+  } else {
+    return UnquotedAttributeValue(char); // <html attribute=
+  }
+}
+
+function doubleQuotedAttributeValue(char) {
+  if (char === "\"") { // 第二个双引号，结束
+    return afterQuotedAttributeValue;
+  } else if (char === "\u0000") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return doubleQuotedAttributeValue;
+  }
+}
+
+function singleQuotedAttributeValue(char) {
+  if (char === "\'") {
+    return afterQuotedAttributeValue;
+  } else if (char === "\u0000") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return singleQuotedAttributeValue;
+  }
+}
+
+// 所有的 属性结束时，把其 Attribute name、value 写到 current token，即当前的标签上
+function UnquotedAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/)) { // Unquoted Attribute value 以空白符结束
+    return beforeAttributeName; // 因为空白符是结束的标志， “<html maaa=a ” 把相关值挂到token上后，接下的状态可能又是一个新的 attribute name
+  } else if (char === "/") {
+    return selfClosingStartTag; // 同上，自封闭标签的结束
+  } else if (char === ">") {
+    return data;
+  } else if (char === "\u0000") {
+
+  } else if (char === "\"" || char === "'" || char === "<" || char === "=" || char === "`") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return UnquotedAttributeValue;
+  }
+}
+
+// afterQuotedAttributeValue 状态只能在 double quoted 和 single quoted 之后进入。
+// 不能直接接收一个字符 如： "<div id='a'"" 这之后至少得有一个空格才可以，紧挨着如 "<div id='a'class=""" 是不合法的 "<div id='a' class=""" 才行
+function afterQuotedAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    return beforeAttributeName;
+  } else if (char === "/") {
+    return selfClosingStartTag;
+  } else if (char === ">") { // 标签结束，emit token
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+    return doubleQuotedAttributeValue;
+  }
+}
+
+function afterAttributeName(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    return afterAttributeName;
+  } else if (char === "/") {
+    return selfClosingStartTag;
+  } else if (char === "=") {
+    return beforeAttributeValue;
+  } else if (char === ">") {
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+    return attributeName(char);
+  }
+}
+```
+
+然后在 index.js 中使用它：
+./client/index.js
+```
+const parser = require('./parser');
+...
+
+void async function () {
+  const request = new Request({
+   ...
+  });
+
+  const response = await request.send();
+  const dom = parser.parseHTML(response.body);
+  console.log(JSON.stringify(dom, null, 2));
+}()
+```
+运行 index.js，可以看到状态机能跑起来了，在 console 里可以看出每一步 字符和状态的对应关系 （错一位，图上画箭头，↘）
+
+不过由于是空的架子，它啥都没干，所以最后的 dom 是 undefined。
+
+而状态机的意义就是，可以在各状态中添加相应的逻辑代码，达到我们的目的。我们这一步的目的是，得到一颗 DOM 树。
+
+所以，接下来，我们开始创建元素 elements。
 
 
 
