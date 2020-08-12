@@ -1239,7 +1239,9 @@ function afterAttributeName(char) {
 
 至此，我们就把字符流拆成了词（token）了，接下来我们要把这些简单的词变成 DOM 树。
 
-#### 构建 DOM 树 （语法分析 SyntaticalParser）
+### 语法分析 SyntaticalParser
+
+#### 构建 DOM 树
 
 在完全符合标准的浏览器中，不一样的 HTML 节点对应了不同的 Node 的子类，我们为了简化，就不完整实现这个继承体系了。我们仅仅把 Node 分为 Element 和 Text。
 
@@ -1251,7 +1253,7 @@ function afterAttributeName(char) {
 
 当接收完所有输入，栈顶就是最后的根节点，我们 DOM 树的产出，就是这个 stack 的第一项。
 
-而对于 Text 节点，我们则需要把相邻的 Text 节点合并起来，我们的做法是当词（token）入栈时，检查栈顶是否是 Text 节点，如果是的话就合并 Text 节点。
+而对于 Text 节点，我们则需要把相邻的 Text 节点合并起来，我们的做法是当词（token）入栈时，检查栈顶是否是 Text 节点，如果是的话就合并 Text 节点，然后把文本节点添加进 DOM 树。
 
 ./client/parser.js
 ```
@@ -1327,7 +1329,6 @@ function emit(token) {
 
 再次执行 index.js，就可以看到打印出的 DOM 树啦！不再是 undefined
 
-可以看到，元素中有 content 有 attr，就是没有 CSS。它们在裸奔！ 下一步，穿上 CSS 漂亮的衣服
 ```
 {
   "type": "document",
@@ -1445,6 +1446,91 @@ function emit(token) {
   ]
 }
 ```
+
+
+## 第三步 CSS 计算
+可以看到，DOM 树中的元素中有 content 有 attr，就是没有 CSS。它们在裸奔！ 下一步，穿上 CSS 漂亮的衣服
+
+注意，CSS computing 也是发生在 DOM 树构建的过程中的。
+
+这一步，我们需要安装 css 库，这是一个 CSS parser，可以把 CSS 解析为 CSS AST 抽象语法树。
+
+`npm i css`
+
+### 收集 CSS 规则
+
+首先，我们需要从 CSS AST 中收集全部的 CSS rules
+
+./client/parser.js
+```
+const css = require("css");
+...
+
+// 用来存放 CSS rules
+const rules = []; 
+
+// gather all the CSS rules
+function addCSSRules(text) {
+  const ast = css.parse(text);
+  rules.push(...ast.stylesheet.rules);
+}
+```
+
+在什么时候执行它呢？在 style 标签结束时，即遇到 </style> 时执行。（忽略其他位置的CSS）
+
+所以，在 emit 方法中
+
+```
+...
+else if (token.type === 'endTag') {
+  if (top.tagName !== token.tagName) {
+    throw new Error('Tag does not match');
+  } else {
+    if (top.tagName === 'style') {
+      addCSSRules(top.children[0].content); // 栈顶元素 top 的 children 是当前 element
+    }
+    stack.pop();
+  }
+  currentTextNode = null;
+}
+...
+```
+
+此时，如果打印 rules ，就会发现 CSS 规则已经被收集了。
+
+![](cm03 rules)
+
+### 匹配 CSS 规则
+
+CSS computing 即把CSS属性挂载到相匹配的DOM节点上去。
+
+什么时候进行匹配呢，一般来说，CSS 设计会尽量保证所有的选择器都能在 startTag 进入时就能被判断。随着后来高级选择器的加入，该规则有所松动，但大部分规则仍然遵循。即 DOM tree 构建到 startTag 步骤时，就已经可以判断该元素匹配哪些 CSS 规则了。
+
+篇幅所限，我们的示例代码中仅使用简单的选择器。
+
+// 创建一个元素后，立即计算其 CSS
+
+// 真实浏览器中，可能出现 body 中有 style 标签，需要重新计算 CSS 的情况，忽略。
+
+我们把 CSS computing 的逻辑放进 computeCSS 函数里，在 emit 函数中调用:
+
+```
+function emit(token) {
+  let top = stack[stack.length - 1];
+
+  if (token.type === 'startTag') {
+    let element = {...}
+
+    for (const prop in token) {
+      ...
+    }
+    // CSS computing happens during the DOM tree construction 
+    computeCSS(element);
+    
+    top.children.push(element);
+    ...
+```
+
 
 
 
