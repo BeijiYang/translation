@@ -553,9 +553,9 @@ console.log('The server is running!');
 
 ## 第二步 HTML 解析
 
-### 词法解析 tokenlization
+### 词法解析 tokenization
 
-[步骤总结](https://static001.geekbang.org/resource/image/34/5a/34231687752c11173b7776ba5f4a0e5a.png)
+![步骤总结](https://static001.geekbang.org/resource/image/34/5a/34231687752c11173b7776ba5f4a0e5a.png)
 
 tokenlization 是什么 ？？
 HTML 的结构不算太复杂，我们日常开发需要的 90% 的“词”（指编译原理的术语 token，表示最小的有意义的单元），种类大约只有标签开始、属性、标签结束、注释、CDATA 节点几种。
@@ -571,6 +571,8 @@ HTML 的结构不算太复杂，我们日常开发需要的 90% 的“词”（�
 我们要做的，仅仅是用 JavaScript 翻译出来。
 标准中规定了 80 多个状态，示例代码中仅取一小部分，并做一些简化，足够解析从后端收到的 HTML 即可。
 
+#### setup the state machine
+
 我们把状态设计为函数，这样状态迁移代码就非常的简单：
 
 ```
@@ -580,8 +582,6 @@ for (const char of html) {
   state = state(char);
 }
 ```
-
-// 标签种类 开始 封闭 自封闭
 
 据此，我们增加新的 parser.js
 
@@ -609,6 +609,7 @@ function data(char) {
   } else if (char === EOF) {
     return;
   } else {
+    // text node
     return data;
   }
 }
@@ -821,12 +822,629 @@ void async function () {
 ```
 运行 index.js，可以看到状态机能跑起来了，在 console 里可以看出每一步 字符和状态的对应关系 （错一位，图上画箭头，↘）
 
+![](cm02 empty state machine)
+
 不过由于是空的架子，它啥都没干，所以最后的 dom 是 undefined。
 
-而状态机的意义就是，可以在各状态中添加相应的逻辑代码，达到我们的目的。我们这一步的目的是，得到一颗 DOM 树。
+而状态机的意义就是，可以在各状态中添加相应的逻辑代码，达到我们的目的。
 
-所以，接下来，我们开始创建元素 elements。
+(我们这一步的目的是，得到一颗 DOM 树。
+所以，接下来，我们开始创建元素 elements。)
 
+#### get token
+
+标签种类不外乎 开始 封闭 自封闭，我们在状态机中，**遇到标签结束状态时提交标签token。**
+
+然后创建提交token的 emit 函数。the emit function takes the token generated from the state machine
+
+这一步中，先在 emit 函数中什么都不做，仅仅打印 token。
+
+补充后，parser 代码如下:
+
+./client/parser.js
+```
+const EOF = Symbol('EOF'); // end of file token
+let currentToken = null;
+
+function emit(token) {
+  console.log(token);
+}
+
+module.exports.parseHTML = function (html) {
+  let state = data; // initial state             HTML 标准里把初始状态称为 data
+
+  for (const char of html) {
+    // console.log(JSON.stringify(char), state.name)
+    state = state(char);
+  }
+  state = state(EOF);
+}
+
+// There three kinds of HTML tags: opening tag <div>, closing tag </div>, self-colsing tag <div/>
+// initial state             HTML 标准里把初始状态称为 data
+function data(char) {
+  if (char === '<') {
+    return tagOpen;
+  } else if (char === EOF) {
+    emit({ type: 'EOF' });
+    return;
+  } else {
+    // emit the text node one by one, we can join them later
+    emit({
+      type: 'text',
+      content: char,
+    });
+    return data;
+  }
+}
+
+// when the state is tagOpen, we don't know what kind of tag it is. 
+// <
+function tagOpen(char) {
+  if (char === '/') {
+    // </    </div>
+    return endTagOpen;
+  } else if (char.match(/^[a-zA-Z]$/)) {
+    // the char is a letter, the tag could be a opening tag or a self-closing tag
+    // <d      <div> or </div>
+    currentToken = {
+      type: 'startTag',
+      tagName: '',
+    }
+    return tagName(char); // reconsume
+  } else {
+    // Parse error
+    return;
+  }
+}
+// /
+function endTagOpen(char) {
+  if (char.match(/^[a-zA-Z]$/)) {
+    currentToken = {
+      type: 'endTag',
+      tagName: ''
+    }
+    return tagName(char);
+  } else if (char === '>') {
+    // error  />  It's html, not JSX
+    // Parse error
+  } else if (char === EOF) {
+    // Parse error
+  } else {
+    // Parse error
+  }
+}
+
+function tagName(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    // tagname start from a '<', end with a ' '
+    // <div prop
+    return beforeAttributeName;
+  } else if (char === '/') {
+    return selfClosingStartTag;
+  } else if (char.match(/^[a-zA-Z]$/)) {
+    currentToken.tagName += char;
+    return tagName;
+  } else if (char === '>') {
+    // the current tag is over, go back to the initial state to parse the next tag
+    emit(currentToken);
+    return data;
+  } else {
+    return tagName;
+  }
+}
+
+// 已经 <div/ 了，后面只有跟 > 是有效的，其他的都报错。
+function selfClosingStartTag(char) {
+  if (char === ">") {
+    currentToken.isSelfClosing = true;
+    emit(currentToken) // 补?
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+
+  }
+}
+
+function beforeAttributeName(char) {
+  if (char.match(/^[\t\n\f ]$/)) { // 当标签结束
+    return beforeAttributeName;
+  } else if (char === "/" || char === ">" || char === EOF) {
+    // 属性结束
+    return afterAttributeName(char);
+  } else if (char === "=") {
+    // 属性开始的时候，不会直接就是等号，报错
+    // return
+  } else {
+    return attributeName(char);
+  }
+}
+
+function attributeName(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === EOF) { // 一个完整的属性结束 "<div class='abc' "
+    return afterAttributeName(char);
+  } else if (char === "=") { // class= 可以进入获取value的状态
+    return beforeAttributeValue;
+  } else if (char === "\u0000") { // null
+
+  } else if (char === "\"" || char === "'" || char === "<") { // 双引号 单引号 <
+
+  } else {
+    return attributeName;
+  }
+}
+
+
+function attributeName(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === EOF) { // 一个完整的属性结束 "<div class='abc' "
+    return afterAttributeName(char);
+  } else if (char === "=") { // class= 可以进入获取value的状态
+    return beforeAttributeValue;
+  } else if (char === "\u0000") { // null
+
+  } else if (char === "\"" || char === "'" || char === "<") { // 双引号 单引号 <
+
+  } else {
+    return attributeName;
+  }
+}
+
+function beforeAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === ">" || char === EOF) {
+    return beforeAttributeValue; //?
+  } else if (char === "\"") {
+    return doubleQuotedAttributeValue; // <html attribute="
+  } else if (char === "\'") {
+    return singleQuotedAttributeValue; // <html attribute='
+  } else if (char === ">") {
+    // return data
+  } else {
+    return UnquotedAttributeValue(char); // <html attribute=
+  }
+}
+
+function doubleQuotedAttributeValue(char) {
+  if (char === "\"") { // 第二个双引号，结束
+    return afterQuotedAttributeValue;
+  } else if (char === "\u0000") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return doubleQuotedAttributeValue;
+  }
+}
+
+function singleQuotedAttributeValue(char) {
+  if (char === "\'") {
+    return afterQuotedAttributeValue;
+  } else if (char === "\u0000") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return singleQuotedAttributeValue;
+  }
+}
+
+// 所有的 属性结束时，把其 Attribute name、value 写到 current token，即当前的标签上
+function UnquotedAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/)) { // Unquoted Attribute value 以空白符结束
+    return beforeAttributeName; // 因为空白符是结束的标志， “<html maaa=a ” 把相关值挂到token上后，接下的状态可能又是一个新的 attribute name
+  } else if (char === "/") {
+    return selfClosingStartTag; // 同上，自封闭标签的结束
+  } else if (char === ">") {
+    emit(currentToken); // 结束
+    return data;
+  } else if (char === "\u0000") {
+
+  } else if (char === "\"" || char === "'" || char === "<" || char === "=" || char === "`") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return UnquotedAttributeValue;
+  }
+}
+
+// afterQuotedAttributeValue 状态只能在 double quoted 和 single quoted 之后进入。
+// 不能直接接收一个字符 如： "<div id='a'"" 这之后至少得有一个空格才可以，紧挨着如 "<div id='a'class=""" 是不合法的 "<div id='a' class=""" 才行
+function afterQuotedAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    return beforeAttributeName;
+  } else if (char === "/") {
+    return selfClosingStartTag;
+  } else if (char === ">") { // 标签结束，emit token
+    emit(currentToken);
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+    return doubleQuotedAttributeValue;
+  }
+}
+
+function afterAttributeName(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    return afterAttributeName;
+  } else if (char === "/") {
+    return selfClosingStartTag;
+  } else if (char === "=") {
+    return beforeAttributeValue;
+  } else if (char === ">") {
+    emit(currentToken);
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+    return attributeName(char);
+  }
+}
+```
+
+![](cm2 token 上+下)
+
+我们已经可以获取这些 token 了，不过现在属性还是缺失的。如 HTML 中带有 id 的 img 标签 `<img id="myid"/>`，其 token 是 `{ type: 'startTag', tagName: 'img', isSelfClosing: true }`
+
+添加属性的方法与上一步类似，添加 currentAttribute 变量，并在状态机中补全逻辑
+
+./client/parser.js
+```
+const EOF = Symbol('EOF'); // end of file token
+let currentToken = null;
+let currentAttribute = null;
+
+...
+
+function beforeAttributeName(char) {
+  if (char.match(/^[\t\n\f ]$/)) { // 当标签结束
+    return beforeAttributeName;
+  } else if (char === "/" || char === ">" || char === EOF) {
+    // 属性结束
+    return afterAttributeName(char);
+  } else if (char === "=") {
+    // 属性开始的时候，不会直接就是等号，报错
+    // return
+  } else {
+    return attributeName(char);
+  }
+}
+
+function attributeName(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === EOF) { // 一个完整的属性结束 "<div class='abc' "
+    return afterAttributeName(char);
+  } else if (char === "=") { // class= 可以进入获取value的状态
+    return beforeAttributeValue;
+  } else if (char === "\u0000") { // null
+
+  } else if (char === "\"" || char === "'" || char === "<") { // 双引号 单引号 <
+
+  } else {
+    return attributeName;
+  }
+}
+
+
+function attributeName(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === EOF) { // 一个完整的属性结束 "<div class='abc' "
+    return afterAttributeName(char);
+  } else if (char === "=") { // class= 可以进入获取value的状态
+    return beforeAttributeValue;
+  } else if (char === "\u0000") { // null
+
+  } else if (char === "\"" || char === "'" || char === "<") { // 双引号 单引号 <
+
+  } else {
+    return attributeName;
+  }
+}
+
+function beforeAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/) || char === "/" || char === ">" || char === EOF) {
+    return beforeAttributeValue; //?
+  } else if (char === "\"") {
+    return doubleQuotedAttributeValue; // <html attribute="
+  } else if (char === "\'") {
+    return singleQuotedAttributeValue; // <html attribute='
+  } else if (char === ">") {
+    // return data
+  } else {
+    return UnquotedAttributeValue(char); // <html attribute=
+  }
+}
+
+function doubleQuotedAttributeValue(char) {
+  if (char === "\"") { // 第二个双引号，结束
+    return afterQuotedAttributeValue;
+  } else if (char === "\u0000") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return doubleQuotedAttributeValue;
+  }
+}
+
+function singleQuotedAttributeValue(char) {
+  if (char === "\'") {
+    return afterQuotedAttributeValue;
+  } else if (char === "\u0000") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return singleQuotedAttributeValue;
+  }
+}
+
+// 所有的 属性结束时，把其 Attribute name、value 写到 current token，即当前的标签上
+function UnquotedAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/)) { // Unquoted Attribute value 以空白符结束
+    return beforeAttributeName; // 因为空白符是结束的标志， “<html maaa=a ” 把相关值挂到token上后，接下的状态可能又是一个新的 attribute name
+  } else if (char === "/") {
+    return selfClosingStartTag; // 同上，自封闭标签的结束
+  } else if (char === ">") {
+    emit(currentToken); // 结束
+    return data;
+  } else if (char === "\u0000") {
+
+  } else if (char === "\"" || char === "'" || char === "<" || char === "=" || char === "`") {
+
+  } else if (char === EOF) {
+
+  } else {
+    return UnquotedAttributeValue;
+  }
+}
+
+// afterQuotedAttributeValue 状态只能在 double quoted 和 single quoted 之后进入。
+// 不能直接接收一个字符 如： "<div id='a'"" 这之后至少得有一个空格才可以，紧挨着如 "<div id='a'class=""" 是不合法的 "<div id='a' class=""" 才行
+function afterQuotedAttributeValue(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    return beforeAttributeName;
+  } else if (char === "/") {
+    return selfClosingStartTag;
+  } else if (char === ">") { // 标签结束，emit token
+    emit(currentToken);
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+    return doubleQuotedAttributeValue;
+  }
+}
+
+function afterAttributeName(char) {
+  if (char.match(/^[\t\n\f ]$/)) {
+    return afterAttributeName;
+  } else if (char === "/") {
+    return selfClosingStartTag;
+  } else if (char === "=") {
+    return beforeAttributeValue;
+  } else if (char === ">") {
+    emit(currentToken);
+    return data;
+  } else if (char === EOF) {
+
+  } else {
+    return attributeName(char);
+  }
+}
+```
+
+再次执行，可以看到缺失的属性已经出现了
+
+![](cm02 token img-id attr)
+
+至此，我们就把字符流拆成了词（token）了，接下来我们要把这些简单的词变成 DOM 树。
+
+#### 构建 DOM 树 （语法分析 SyntaticalParser）
+
+在完全符合标准的浏览器中，不一样的 HTML 节点对应了不同的 Node 的子类，我们为了简化，就不完整实现这个继承体系了。我们仅仅把 Node 分为 Element 和 Text。
+
+对于 element，我们通过用栈来匹配开始和结束标签的方案，实现 DOM 树的构建。
+
+具体来说，在 emit 函数在接收 token 的同时，就开始构建 DOM 树，遇到开始标签就入栈，遇到匹配的结束标签就出栈。自封闭标签不需要入栈。
+
+值得一提的是，当发生标签不匹配时，真正的浏览器会做容错处理，我们此处简化为报错。
+
+当接收完所有输入，栈顶就是最后的根节点，我们 DOM 树的产出，就是这个 stack 的第一项。
+
+而对于 Text 节点，我们则需要把相邻的 Text 节点合并起来，我们的做法是当词（token）入栈时，检查栈顶是否是 Text 节点，如果是的话就合并 Text 节点。
+
+./client/parser.js
+```
+const EOF = Symbol('EOF'); // end of file token
+let currentToken = null;
+let currentAttribute = null;
+let currentTextNode = null;
+
+const stack = [{ type: 'document', children: [] }];
+
+module.exports.parseHTML = function (html) {
+  let state = data; // initial state
+
+  for (const char of html) {
+    state = state(char);
+  }
+  state = state(EOF);
+  // return the DOM tree
+  return stack[0];
+}
+
+...
+
+function emit(token) {
+  let top = stack[stack.length - 1];
+
+  if (token.type === 'startTag') {
+    // create the element
+    let element = {
+      type: 'element',
+      children: [],
+      attributes: [],
+      tagName: token.tagName
+    }
+
+    for (const prop in token) {
+      if (prop !== "type" && prop !== "tagName") {
+        element.attributes.push({
+          name: prop,
+          value: token[prop],
+        })
+      }
+    }
+    // 创造树型关系
+    top.children.push(element);
+    // 为了能打印出来，暂时注释掉这行，防止循环结构的错误 circular structure
+    // element.parent = top;
+
+    if (!token.isSelfClosing) {
+      stack.push(element);
+    }
+
+    currentTextNode = null;
+  } else if (token.type === 'endTag') {
+    if (top.tagName !== token.tagName) {
+      throw new Error('Tag does not match');
+    } else {
+      stack.pop();
+    }
+    currentTextNode = null;
+  } else if (token.type === 'text') {
+    if (currentTextNode === null) {
+      currentTextNode = {
+        type: "text",
+        content: "",
+      }
+      top.children.push(currentTextNode);
+    }
+    currentTextNode.content += token.content;
+  }
+}
+```
+
+再次执行 index.js，就可以看到打印出的 DOM 树啦！不再是 undefined
+
+可以看到，元素中有 content 有 attr，就是没有 CSS。它们在裸奔！ 下一步，穿上 CSS 漂亮的衣服
+```
+{
+  "type": "document",
+  "children": [
+    {
+      "type": "element",
+      "children": [
+        {
+          "type": "text",
+          "content": "\n      "
+        },
+        {
+          "type": "element",
+          "children": [
+            {
+              "type": "text",
+              "content": "\n            "
+            },
+            {
+              "type": "element",
+              "children": [
+                {
+                  "type": "text",
+                  "content": "\n      body div #myid{\n        width:100px;\n        background-color: #ff5000;\n      }\n      body div img{\n        width:30px;\n        background-color: #ff1111;\n      }\n        "
+                }
+              ],
+              "attributes": [],
+              "tagName": "style"
+            },
+            {
+              "type": "text",
+              "content": "\n      "
+            }
+          ],
+          "attributes": [],
+          "tagName": "head"
+        },
+        {
+          "type": "text",
+          "content": "\n      "
+        },
+        {
+          "type": "element",
+          "children": [
+            {
+              "type": "text",
+              "content": "\n        "
+            },
+            {
+              "type": "element",
+              "children": [
+                {
+                  "type": "text",
+                  "content": "\n            "
+                },
+                {
+                  "type": "element",
+                  "children": [],
+                  "attributes": [
+                    {
+                      "name": "id",
+                      "value": "myid"
+                    },
+                    {
+                      "name": "isSelfClosing",
+                      "value": true
+                    }
+                  ],
+                  "tagName": "img"
+                },
+                {
+                  "type": "text",
+                  "content": "\n            "
+                },
+                {
+                  "type": "element",
+                  "children": [],
+                  "attributes": [
+                    {
+                      "name": "isSelfClosing",
+                      "value": true
+                    }
+                  ],
+                  "tagName": "img"
+                },
+                {
+                  "type": "text",
+                  "content": "\n        "
+                }
+              ],
+              "attributes": [],
+              "tagName": "div"
+            },
+            {
+              "type": "text",
+              "content": "\n      "
+            }
+          ],
+          "attributes": [],
+          "tagName": "body"
+        },
+        {
+          "type": "text",
+          "content": "\n      "
+        }
+      ],
+      "attributes": [
+        {
+          "name": "maaa",
+          "value": "a"
+        }
+      ],
+      "tagName": "html"
+    }
+  ]
+}
+```
 
 
 
