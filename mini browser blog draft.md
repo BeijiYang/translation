@@ -2237,7 +2237,6 @@ function layout(element) {
       if (align === 'stretch') {
         console.log('🌲', itemStyle)
         itemStyle[crossStart] = crossBase;
-        // itemStyle[crossEnd] = crossBase + crossSign * ((itemStyle[crossSize] !== null && itemStyle[cross])); // 又他妈不完整
         itemStyle[crossEnd] = crossBase + crossSign * ((itemStyle[crossSize] !== null && itemStyle[crossSize] !== (void 0)) ? itemStyle[crossSize] : lineCrossSize)
         console.log('\n', '✨', lineCrossSize, '\n', itemStyle)
         itemStyle[crossSize] = crossSign * (itemStyle[crossEnd] - itemStyle[crossStart]);
@@ -2249,6 +2248,159 @@ function layout(element) {
     crossBase += crossSign * (lineCrossSize + gap);
   })
 ```
+
+
+至此，我们得到了一棵带位置的 DOM 树。
+
+
+### 服务端返回应用 flex 布局的 HTML
+
+./server/server.js
+```
+     ...
+     
+     response.end(
+        `<html maaa=a >
+      <head>
+            <style>
+      #container {
+        width:500px;
+        height:300px;
+        display:flex;
+        background-color:rgb(139,195,74);
+      }
+      #container #myid {
+        width:200px;
+        height:100px;
+        background-color:rgb(255,235,59);
+      }
+      #container .c1 {
+        flex:1;
+        background-color:rgb(56,142,60);
+      }
+        </style>
+      </head>
+      <body>
+        <div id="container">
+            <div id="myid"/>
+            <div class="c1" />
+        </div>
+      </body>
+      </html>`);
+      ...
+      
+```
+
+此时，可以在新的 DOM 树中观察到，元素的位置已经计算好了
+
+![](cm04 dom element position)
+
+
+下一步，把它渲染出来吧！
+
+
+
+## 第五步 渲染绘制
+
+在计算机图形学领域里，英文 render 这个词是一个简写，它是特指把模型变成位图的过程。我们把 render 翻译成“渲染”，我们现在的一些框架，也会把“从数据变成 HTML 代码的过程”称为 render，其实我觉得这是非常具有误导性的
+
+这里的位图就是在内存里建立一张二维表格，把一张图片的每个像素对应的颜色保存进去（位图信息也是 DOM 树中占据浏览器内存最多的信息，我们在做内存占用优化时，主要就是考虑这一部分）
+
+
+绘制依赖图形环境，用了 images  `npm i images`
+绘制在 viewport 上进行
+与绘制有关的属性：background-color, border, background-image etc.
+gradient 需要 webGL 来做，images 做不出
+
+### 渲染单个 flex item
+
+./client/render.js
+```
+const images = require("images");
+
+function render(viewport, element) {
+  if (element.style) { // 检测元素是否有样式
+    let img = images(element.style.width, element.style.height); // 根据其宽高创建新的 img 对象
+    // 简化，只处理背景色
+    if (element.style["background-color"]) {
+      let color = element.style["background-color"] || "rgb(0, 0, 0)";
+      color.match(/rgb\((\d+),(\d+),(\d+)\)/);
+      img.fill(Number(RegExp.$1), Number(RegExp.$2), Number(RegExp.$3), ) // 又尼玛不全
+      viewport.draw(
+        img,
+        element.style.left || 0,
+        element.style.top || 0
+      );
+    }
+  }
+}
+
+module.exports = render; 
+```
+
+./client/index.js
+```
+const net = require('net');
+const images = require("images");
+const parser = require('./parser');
+const render = require("./render");
+
+...
+
+void async function () {
+  const request = new Request({...});
+
+  const response = await request.send();
+  const dom = parser.parseHTML(response.body);
+
+  const viewport = images(800, 600);
+  render(viewport, dom.children[0].children[3].children[1].children[3]); // 传入视口 和 想要绘制的dom (class="c1" 的 div)
+  viewport.save('viewport.jpg');
+}()
+```
+
+可以看到，成功生成了图片
+
+![](viewport-0.jpg)
+
+### 完整渲染
+
+递归调用子元素的绘制方法，可以完成 DOM 树的绘制
+忽略一些不需要绘制的节点 ？
+实际的浏览器中，文字绘制是难点，依赖字体库，把字体变成图片再渲染。忽略。
+实际浏览器中，还会对图层进行 compositing，忽略。
+
+
+
+./client/render.js
+```
+function render(viewport, element) {
+  if (element.style) {
+    ...
+  }
+
+  if (element.children) {
+    for (const child of element.children) {
+      render(viewport, child);
+    }
+  }
+}
+```
+
+在 index.js 中，替换
+
+`render(viewport, dom.children[0].children[3].children[1].children[3]);` => `render(viewport, dom);`
+
+BANG ✿✿ヽ(°▽°)ノ✿
+
+![](viewport-1.jpg)
+
+
+
+
+
+
+
 
 
 
