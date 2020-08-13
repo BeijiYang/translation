@@ -1329,6 +1329,8 @@ function emit(token) {
 
 再次执行 index.js，就可以看到打印出的 DOM 树啦！不再是 undefined
 
+可以看到，document 根节点下面是 html，在下面是 head 和 body ...
+
 ```
 {
   "type": "document",
@@ -1514,6 +1516,7 @@ CSS computing 即把CSS属性挂载到相匹配的DOM节点上去。
 
 我们把 CSS computing 的逻辑放进 computeCSS 函数里，在 emit 函数中调用:
 
+parser
 ```
 function emit(token) {
   let top = stack[stack.length - 1];
@@ -1530,6 +1533,112 @@ function emit(token) {
     top.children.push(element);
     ...
 ```
+
+在 computeCSS 函数中，为了正确匹配选择器与相应元素，我们需要获取当前元素的父元素序列。如 'div #myid'
+
+`const elements = stack.slice().reverse();`
+
+栈中会存储当前元素所有的父元素。
+因为栈是不断变化的，所以用 slice 方法保存当前状态的副本。
+reverse 原因：CSS selector 和元素匹配时，先从当前元素开始 逐级往外匹配。如，一个后代选择器 div #myid 前面的 div 不一定是哪个祖先元素，但后面的 #id 一定是当前元素。所以以 子 => 父 ，从内到外的顺序匹配。
+
+另外，我们还需要一个计算 选择器 与 元素 是否匹配的方法。
+同样，为了简化，我们此处仅处理这种由简单选择器和空格构成的后代选择器的情况。'div #myid'
+然后在 computeCSS 中，取规则与元素进行匹配
+
+parser
+```
+...
+
+// 假设 selector 是简单选择器
+// 简单选择器：.class选择器  #id选择器  tagname选择器
+function match(element, selector) {
+  if (!selector || !element.attributes) return false;
+
+  if (selector.charAt(0) === '#') { // id selector
+    const attr = element.attributes.filter(
+      ({ name }) => (name === 'id')
+    )[0];
+    if (attr && attr.value === selector.replace('#', '')) {
+      return true;
+    }
+  } else if (selector.charAt(0) === '.') { // class selector
+    const attr = element.attributes.filter(
+      ({ name }) => (name === 'class')
+    )[0];
+    if (attr && attr.value === selector.replace(".", "")) {
+      return true;
+    }
+  } else { // type selector
+    if (element.tagName === selector) return true;
+  }
+}
+
+
+function computeCSS(element) {
+  const elements = stack.slice().reverse();
+
+  for (const rule of rules) {
+    const selectors = rule.selectors[0].split(' ').reverse(); // 见 ast 结构，注意 reverse 对应
+    // console.log(selectors) // [ '#myid', 'div', 'body' ]
+
+    if (!match(element, selectors[0])) continue;
+
+    let matched = false;
+
+    let selectorIndex = 1; // elements 是父元素们，所以从1开始
+    for (let elementIndex = 0; elementIndex < elements.length; elementIndex++) {
+      if (match(elements[elementIndex], selectors[selectorIndex])) {
+        selectorIndex++;
+      }
+    }
+    if (selectorIndex >= selectors.length) {
+      // all selectors are matched
+      matched = true;
+    }
+    if (matched) {
+      console.log(`Selector "${rule.selectors[0]}" has matched element ${JSON.stringify(element)}`)
+    }
+  }
+}
+
+...
+```
+
+从打印出的结果可以看出，元素与选择器已经正确匹配了。
+
+>Selector "body div #myid" has matched element {"type":"element","children":[],"attributes":[{"name":"id","value":"myid"},{"name":"isSelfClosing","value":true}],"tagName":"img"}
+
+
+在成功匹配后，我们下一步应该把 CSS 规则添加到相应的元素上。
+
+这一步很简单，在 computeCSS 函数中，我们为 元素 添加 computedStyle 属性。然后在匹配时，把相应规则挂上去。
+
+```
+function computeCSS(element) {
+  if (!element.computedStyle) {
+    element.computedStyle = {};
+  }
+
+  const elements = stack.slice().reverse();
+
+  for (const rule of rules) {
+    ...
+    
+    if (matched) {
+      const { computedStyle } = element;
+      for (const declaration of rule.declarations) {
+        const { property, value } = declaration;
+        if (!computedStyle[property]) {
+          computedStyle[property] = {};
+        }
+        computedStyle[property] = value;
+      }
+    }
+  }
+}
+```
+
 
 
 
