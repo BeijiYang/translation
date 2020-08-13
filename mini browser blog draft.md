@@ -1636,9 +1636,88 @@ function computeCSS(element) {
       }
     }
   }
+  console.log(element.computedStyle)
 }
 ```
 
+元素上已经有了相匹配的 CSS 规则，但这样就足够了吗？显然还不够，我们还得考虑 CSS 优先级的问题，高优先级的规则总应该被优先显示。目前打印出的结果是错的，后来的低优先覆盖了高优先级。
+
+两个 img 元素的的 computedstyle 都是
+>{ width: '30px', 'background-color': '#ff1111' }
+
+
+CSS 是如何计算优先级的？
+
+优先级 specificity
+四元组，[inline, id, class/attribute, tagname] e.g. [0, 2, 1, 1] sp = 0 * N3️⃣ + 2 * N² + 1 * N + 1 N 是一个很大的数。 IE 老版本中，为了节省内存，N 取值255，不够大，导致了 256 个 class 相当于一个 id 的bug。 当然，正常人不会写 256 个选择器。 目前大部分浏览器取 65536。
+
+据此，我们实现出计算、比较 CSS 优先级的函数。同样的，这也是简化版本。
+
+```
+function getSpecificity(selector) {
+  const specificity = [0, 0, 0, 0];
+  // 同样，假设没有 selector combinator，都是由简单选择器构成的符合选择器
+  const selectors = selector.split(' ');
+
+  for (const item of selectors) {
+    if (item.charAt(0) === '#') {
+      specificity[1] += 1;
+    } else if (item.charAt(0) === '.') {
+      specificity[2] += 1;
+    } else {
+      specificity[3] += 1;
+    }
+  }
+  return specificity;
+}
+
+function compareSpecificity(sp1, sp2) {
+  if (sp1[0] - sp2[0]) {
+    return sp1[0] - sp2[0];
+  }
+  if (sp1[1] - sp2[1]) {
+    return sp1[1] - sp2[1];
+  }
+  if (sp1[2] - sp2[2]) {
+    return sp1[2] - sp2[2];
+  }
+  return sp1[3] - sp2[3];
+}
+```
+
+在 computeCSS 函数中，当 match 的时候，不再仅仅简单给 element 挂上样式，而是结合优先级再进行判断。
+
+```
+if (matched) {
+      const { computedStyle } = element;
+      const specificity = getSpecificity(rule.selectors[0]);
+
+      for (const declaration of rule.declarations) {
+        const { property, value } = declaration;
+        if (!computedStyle[property]) {
+          computedStyle[property] = {};
+        }
+        // computedStyle[property] = value;
+        // CSS specificity
+        if (!computedStyle[property].specificity) {
+          computedStyle[property] = {
+            value,
+            specificity,
+            ...computedStyle[property],
+          }
+        } else if (compareSpecificity(computedStyle[property].specificity, specificity) < 0) {
+          // current CSS selector have higher specificity than the previous, cover the previous rules
+          computedStyle[property] = {
+            value,
+            specificity,
+            ...computedStyle[property],
+          }
+        }
+      }
+    }
+```
+
+执行修改后的代码，我们发现，ID为 myid 的 img 元素的 背景色属性正确显示为 #ff5000
 
 
 
