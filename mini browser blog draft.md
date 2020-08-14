@@ -2401,6 +2401,322 @@ BANG ✿✿ヽ(°▽°)ノ✿
 
 
 
+<!-----
+
+In this article, I'm going to introduce to you how the browser works by creating a simple mini-browser. It's not completed, just like a toy, but it can show the basic rendering principles. Learning by doing is always effective. Let's start the journey.
+
+(浏览器进程)
+
+# Browser's basic work process
+
+The browser works with the following steps:
+Requesting the page from the server using HTTP or HTTPS protocol
+Parsing the HTML to build a DOM tree
+Computing the CSS of the DOM tree
+Rendering the elements according to the CSS properties to get the bitmaps in memory
+Compositing bitmap for better performance(optional)
+Painting to display the content on the screen
+It is a gradual process, like an assembly line in the factory. For example, the rendering engine will not wait until all HTML is parsed before starting to build and layout the DOM tree. In this way, the contents can be displayed on the screen gradually as soon as possible.
+
+In our mini-browser project, we will implement these steps as below.
+
+PICTURE 1
+
+# Step one: network request
+
+## Set up a server
+
+First of all, let's start a simple HTTP server which can send back a simple sentence " Hello World\n".
+
+CODE PIECE 1
+
+After installing the 'http' library and run the index.js file, the server is running!
+
+CODE PIECE 1
+
+PICTURE 2
+
+I would recommend using the node monitor, so you don't have to restart the server by hand every time you change something.
+
+
+## Construct and send an HTTP request
+
+To send an HTTP request, we need to 
+specify the host for IP
+specify the port for TCP
+specify the method, path, headers and body for HTTP
+Like this. We put them in An IIFE (Immediately Invoked Function Expression).
+
+CODE PIECE 2
+
+According to these requirements, we can implement the request class as following.
+
+CODE PIECE 3
+
+In the construction function, we save the parameters and set the default values. When dealing with headers, pay attention to `content-type`. It is required, otherwise, the body can not be parsed correctly, because different formats require different parsing methods.
+
+These are the four most used format:
+application/json
+application/x-www-form-urlencoded  (when submitting form)
+multipart/form-data (when uploading files)
+text/xml
+
+In the project, we set the default value as `application/x-www-form-urlencoded`. In this format, the submitted data will be encoded like `key1=value1&key2=value2`.
+
+In `toString()` method, the HTTP request is build. It is composed of a request line, request head, and request body.
+
+PICTURE HTTP FORMAT
+
+Then,  in the `send()` method, we send this request and print the response data when success.
+
+Don't forget to install the 'net' library, we need it to create a TCP connection.
+
+PICTURE
+
+As we can see, the structure of response data conforms to the above figure.
+
+Maybe you have noticed that the response body is different from what we sent on the server-side.
+what we sent: ' Hello World\n'
+what we get: 'd\r\n Hello World\n\r\n0\r\n\r\n'
+The reason is the `Transfer-Encoding: chunked` in the response headers.
+
+link and reference
+
+So in the first chunk, 'd' is a hexadecimal number, indicating that there are 13 characters, which are 'HelloWorld', two spaces, and a '\n'. The second chunk, the empty one, means the body part is over.
+
+We have successfully got the response data. Next, let's parse it.
+
+## Parse HTTP response
+
+### parse response line and response head
+
+As you can see, the response is such a string:
+ the request line and the request header are separated by `\r\n`
+ there are two `\r\n` between the last request header and the request body
+`HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nDate: Sun, 02 Aug 2020 17:05:31 GMT\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\nd\r\n Hello World\n\r\n0\r\n\r\n`
+
+We can use a state machine to parse this string. The states can be designed according to the format of the response, like below.
+
+link: what is a state machine?
+
+CODE PIECE 4 add response parser
+
+In the index.js, we add the ResponseParser class. Then, in the send method of the Request class, we pass the data to the parser.
+
+Executing the file, we can see that the response line and response header have been parsed successfully, and the content of the response body has been printed.
+
+![](cm01 response state machine)
+
+Different types of response bodies require different parsing methods. Next, we only take chunked as an example.
+
+
+### parse response body
+
+In the newly added ChunkedBodyParser class, we also use a state machine to parse the response body.
+
+The hexadecimal number and the content are separated by `\r\n`, so we design the states like this.
+
+CODE PIECE 5 ChunkedBodyParser
+
+Then, we use the parser in the receiveChar method of the ResponseParser class.
+
+CODE PIECE 6
+
+At this point, the response line, response header, and response body are all parsed, we can complete the `isFinished` and `response` methods in ResponseParser class.
+
+CODE PIECE 7
+
+This is the printed result.
+
+![](cm01 response body state machine)
+
+Let's returned HTML from the server. After saving the changes, the node monitor should automatically restart the server. Requesting again from the client-side,  the response is printed out.
+
+CODE PIECE 8
+PICTURE cm01 HTML 上+下
+
+So far, we have successfully received the HTML from the network request.
+
+Now, we can try to parse HTML to get a DOM tree.
+
+# Step two: HTML parsing
+
+PICTURE
+
+## tokenization (lexical analysis)
+
+A token represents the smallest meaningful unit in the compilation principle. In terms of HTML, 90% of the token that we need for daily development is only about tag start, attributes, tag end, comments, and CDATA nodes.
+
+Take `<p class="a">text</p>` as an example, split it to  the smallest meaningful units, we can get:
+ `<p`: the start of an opening tag
+`class="a"` attrtubes
+`>`  “ the end of an opening tag
+text
+</p> closing tag
+Similar to the previous, we also use a state machine for parsing. Fortunately, the state machine has been designed in the HTML standard, 
+what we need to do is just translate it to JavaScript. 
+
+a link to the standard
+
+There are more than 80 states specified, but we don't need so many states to parse our simple HTML. So in our sample code,  some simplifications are made.
+
+## setup an empty state machine
+
+We design the state as a function so that the state transition part is very simple.
+
+CODE PIECE 9
+
+Add a new file "parser.js".
+
+CODE PIECE 10
+
+Then, use the new parser in the "index.js".
+
+CODE PIECE 11
+
+Run the "index.js”,  now the state machine is running! You can see the correspondence between characters and states at each step in the printed log.(↘）
+
+PICTURE `![](cm02 empty state machine)`
+
+The dom is `undefined` because now this state machine is empty, it does nothing. In the next step, let's add the corresponding logic code in these states to build the DOM tree.
+
+## Emit tokens
+
+The tag types are nothing more than the starting-tag, the closing tag, and the self-closing tag. In the state machine, we emit the tag token when we encounter the end state of the tag.(标签结束状态)
+
+The emit function takes the token generated from the state machine. In this step, it does nothing but prints the received token.
+
+So the `parser.js` looks like this.
+
+CODE PIECE 12
+
+PICTURE `![](cm2 token 上+下)`
+
+Now, we get these tokens. You might have noticed that the attributes are missing. For example, the token of the `img` tag with id "myid" is `{ type: 'startTag', tagName: 'img', isSelfClosing: true }`. The id is not included.
+
+The way of adding attributes is similar to the previous step. Add the `currentAttribute` variable and complete the logic in the state machine like below.
+
+CODE PIECE 13
+
+Run the index again, you can find out that now the attributes come back!
+
+PICTURE `![](cm02 token IMG-id attr)`
+
+At this point, we have split the character stream into tokens, and then let's turn these tokens into a DOM tree.
+
+## DOM tree construction (syntactic analysis)
+
+In real browsers, the HTML nodes inheritance from different subclasses of Node. To simplify our code, we only divide Node into Element and Text.
+
+For elements, we construct the DOM tree by using the stack to match the tags.
+
+Specifically, when the emit function receives the token, it starts to build the DOM tree. When it encounters a start tag, it pushes the element into the stack, and when it encounters the matching end tag, it pops the top element of the stack. Self-closing tags do not need to be pushed into the stack.
+
+It is worth mentioning that when a tag mismatch occurs, the real browser will do fault-tolerant processing, while we just throw an error here.
+
+When all tokens are received, the top element (the document element) of the stack is the root node of the DOM tree.
+
+For Text nodes, we need to merge them when they are adjacent. When it is pushed into the stack,  check whether the top node of the stack is a Text node. If so, merge the Text nodes and then add the text nodes to the DOM tree.
+
+CODE PIECE 14
+
+Run the index again, instead of undefined,  now we can see a DOM tree here! Under the document element is the html element, below it is the head element and the body element. 
+
+# CSS computing
+
+Look at the DOM tree we have here.  The structure is correct, but it is bare, without any decoration. Let's make it a beautiful Christmas tree with CSS in this step!
+
+Note that CSS computing also occurs during the construction of the DOM tree.
+
+We need to install the `css` library which can parse the CSS code into a CSS AST.
+
+`link of AST and npm install CSS`
+
+## Gather the CSS rules
+
+First, we need to gather all CSS rules together from the CSS AST.
+
+CODE PIECE 15
+
+Then, execute it at the end of the style tag. (Ignore CSS in other locations)
+
+So, in the emit method:
+
+CODE PIECE 16
+
+If you print the rules, you'll find that the CSS rules have been collected.
+
+PICTURE `![](cm03 rules)`
+
+## Match CSS rules and elements
+
+CSS computing is to add the CSS rules to the matched DOM nodes.
+
+When to do it? Generally speaking, we will try to ensure that all selectors can be judged when `startTag` is entered. With the later addition of advanced selectors, this rule has been loosened. Due to the limited length of the article, we only use simple selectors in our sample code. So when there is a `startTag`, it is already possible to determine which CSS rules the element matches.
+
+In real browsers, there may be a style tag in the body that requires recalculation of CSS. We ignore this kind of situation.
+
+call the `computeCSS` in the emit function.
+
+CODE PIECE 17
+
+In the `computeCSS` function, in order to match the selector with the corresponding element, we need to get the parent element sequence of the current element. Such as'div #myid'
+
+CODE PIECE 18 one line
+
+All parent elements of the current element are stored in the stack. Because the stack is changing, the slice method is used to save a copy of the current state.
+
+When we try to determine whether an element matches the selector, we start with the current element, then its parent element, and step by step outward. Take "div #myid" as an example, the `div` can be any ancestor element, but `#id` must be the current element.
+
+In addition, we need a way to calculate whether the selector matches the element. Also for simplicity, we only deal with the case of descendant selectors composed of simple selectors and spaces, like 'div #myid'.
+
+CODE PIECE 19
+
+From the printed result, we can see that the element and the selector have been correctly matched.
+
+`Selector "body div #myid" has matched element {"type":"element","children":[],"attributes":[{"name":"id","value":"myid"},{"name":"isSelfClosing","value":true}],"tagName":"img"}`
+
+After the successful match, we should add CSS rules to the corresponding elements.
+
+This step is very simple. In the `computeCSS` function, we add a `computedStyle` property to the element and save the CSS rules into it when matching.
+
+CODE PIECE 20
+
+The elements already have their CSS rules, but it's not enough yet. Go check these two img elements, you'll find that they have the same `computedstyle` property, which is wrong.
+
+`{ width: '30px', 'background-color': '#ff1111' }`
+
+Why? The reason is the CSS specificity. The rules with higher specificity should always have higher priority. The currently wrong result is because the later low-specificity rules overwrite the previous high-specificity rules.
+
+To calculate the CSS specificity, we need a quaternion: `[inline, id, class/attr, tagName]`（Number of each type of selectors）.
+
+The calculation formula is: `specificity = 0 * N3️⃣ + 2 * N² + 1 * N + 1 `
+
+N is a big number. In the old version of IE, in order to save memory, the value of N is 255, which is not large enough, resulting in a funny bug that 256 classes are equivalent to one id. Of course, any sane developer would not write 256 selectors. Nowadays, most browsers set N as 65536.
+
+Based on this, we have implemented functions for calculating and comparing CSS priorities. Again, this is also a simplified version.
+
+CODE PIECE 21
+
+In the `computeCSS` function, when an element matches a selector, instead of simply apply the CSS rules, we need to compare the CSS specificity and use the rules with higher specificity.
+
+CODE PIECE 22 `if matched`
+
+Run it again, as it printed, the `img` element with ID is correctly displayed as #ff5000.
+
+Now, if you print the DOM tree again, you will see a beautiful Christmas tree with all the CSS decoration.
+
+Next, our job is to calculate the position of each element so we can get a DOM tree with position information.
+
+# Layout
+
+
+
+
+
+----->
+
+
 
 
 
