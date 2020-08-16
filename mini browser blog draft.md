@@ -2710,6 +2710,34 @@ Next, our job is to calculate the position of each element so we can get a DOM t
 
 # Layout
 
+In CSS, there are three generations of layout technology: normal flow, flexbox, and grid.
+
+We are going to implement the most popular one: flexbox.  If you are not familiar with this technique, please check this link.
+
+## main axis and cross axis
+
+Before we start, we must first understand the concepts of the main axis and the cross axis. By default, the main axis is horizontal (from left to right) and the cross axis is vertical (top to bottom). It can also change with our settings. For example, when the value of 'flex-direction' is 'row', the main axis is horizontal, when the value is 'column', the main axis is vertical. Using these concepts can help us reduce a lot of unnecessary `if-else` code.
+
+PICTURE
+
+## when to do the layout
+
+Suppose we already have the layout function, when should we call it? To calculate the flexbox layout, we need to know all the children elements of the current element. So we should call the layout method in the 'endTag' branch.
+
+CODE  PIECE 23 parser
+
+## pre-processing
+
+In the newly created `layout.js` file, let's add a `getStyle` function to do some pre-processing work like filtering out unwanted elements and type conversion(string to number).
+
+CODE  PIECE 24
+
+## Set default values
+
+
+
+
+
 
 
 
