@@ -2734,6 +2734,85 @@ CODE  PIECE 24
 
 ## Set default values
 
+Set default values in the layout function.
+
+CODE  PIECE 25
+
+## Collect elements into flex line
+
+Put the elements in one line if there is enough room or  `no-wrap`, otherwise, start a new line.
+
+There might be a special case: If the parent element does not have a main axis size (like width), the parent element is stretched by the child element. This mode is called the "auto main size". In this case, the elements are gathered in one line.
+
+CODE PIECE 26 special case
+
+CODE PIECE 27 normal case
+
+## calculate the main axis
+
+Find all flex items and assign the remaining space mainspace in the main axis direction to these flex items proportionally.  Special case: if the remaining space is a negative number (like the "no-wrap" mode), set the size on the main axis of all flex items elements to 0, and compress the remaining elements proportionally
+
+If there are no flex items, calculate the position of each element according to the value of `justify-content`.
+
+CODE PIECE 28 normal case
+
+If the flex-direction is "row", at this point we have the value of `width`, `left`, and `right`. The next step is to calculate the cross axis to get the value of `height`, `top`, and `bottom`.  When these are determined, the position of the element is also determined.
+
+## calculate the cross axis
+
+determine the height of the line based on the size of the largest element
+calculate the specific position of elements according to the value of  `flex-align` and `item-align`
+
+CODE PIECE 29
+
+Now, we have a DOM tree with the position data!
+
+## send an HTML with flexbox layout from the server
+
+CODE PIECE 30
+
+PICTURE (![]cm04 dom element position)
+
+As you can see from the new DOM tree, the positions of the elements are already there. Let's render it in the next step!
+
+# Render
+
+In the field of computer graphics, the term "render" specifically refers to the process of turning a model into a bitmap. Note that some frameworks, like React, call the "process from data to HTML code" as to render, which is different.
+
+The bitmap here is a two-dimensional table built in memory, and the color corresponding to each pixel of a picture is saved.
+
+Here we use the images library for painting in the viewport, it supports painting background-color, border, background-image, etc.
+
+`npm install images`
+
+## render one flex item
+
+In the beginning, let's try to render one flex item. 
+
+CODE PIECE 31
+
+CODE PIECE 32
+
+Go check the viewport.jpg, we rendered the item out successfully!
+
+PICTURE
+
+## Full rendering
+
+This step is quite easy, calling the drawing method of the child elements recursively can render the whole DOM tree. 
+
+Text drawing is difficult, it relying on the font library to turn the font into a picture. We ignore it in our mini-browser project.
+
+CODE PIECE 33
+PICTURE
+
+Run the index.js and check the picture again, you'll find that the elements are rendered perfectly. Let's change some flex rules to see whether the browser can handle it, like this.
+
+PICTURE
+
+The answer is yes!
+
+
 
 
 
